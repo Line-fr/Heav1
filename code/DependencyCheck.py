@@ -4,7 +4,9 @@ from subprocess import check_output, call, Popen, DEVNULL
 import os
 import json
 import shutil
+import copy
 import time
+import math
 try:
 	from matplotlib import pyplot
 except:
@@ -14,6 +16,26 @@ except:
 		from matplotlib import pyplot
 	except:
 		print("fails to install matplotlib")
+		exit(1)
+try:
+	import numpy as np
+except:
+	print("warning: numpy is not installed, running pip install numpy")
+	check_output("pip install numpy", stderr = DEVNULL)
+	try:
+		import numpy as np
+	except:
+		print("fails to install numpy")
+		exit(1)
+try:
+	import scipy
+except:
+	print("warning: scipy is not installed, running pip install scipy")
+	check_output("pip install scipy", stderr = DEVNULL)
+	try:
+		import scipy
+	except:
+		print("fails to install scipy")
 		exit(1)
 from multiprocessing import Pool
 import time

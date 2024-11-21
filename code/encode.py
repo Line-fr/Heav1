@@ -59,7 +59,7 @@ class AOMParameters:
 		return ret
 
 class AV1ANParameters:
-	def __init__(self, encoder:str = "svt-av1", svtparam:SVTParameters = SVTParameters(), aomparam:AOMParameters = AOMParameters(), workers:int = 6, rescale:(int, int) = None, audio_bitrate:int = 128, keep:bool = False, tempdir:str = None):
+	def __init__(self, encoder:str = "svt-av1", svtparam:SVTParameters = SVTParameters(), aomparam:AOMParameters = AOMParameters(), workers:int = 6, rescale:(int, int) = None, audio_bitrate:int = 128, discard_audio:bool = False, keep:bool = False, tempdir:str = None):
 		#encoder between: "svt-av1" and "aom"
 		assert encoder == "svt-av1" or encoder == "aom"
 		self.encoder = encoder
@@ -69,6 +69,7 @@ class AV1ANParameters:
 		self.rescale = rescale
 		self.audio_bitrate = audio_bitrate
 		self.keep = keep
+		self.an = discard_audio
 		self.tempdir = tempdir
 
 	def __str__(self) -> str:
@@ -90,7 +91,11 @@ class AV1ANParameters:
 			tempdir = " --temp "+self.tempdir
 		else:
 			tempdir = " "
-		return f'-y{keepstr}{tempdir} --verbose -m lsmash -c mkvmerge --set-thread-affinity {self.svtparam.threads} --chunk-order long-to-short -e {self.encoder} -v="{encoder_param}" --pix-format yuv420p10le {rescale} -a "-c:a libopus -ac:a 2 -b:a {self.audio_bitrate}k" -w {self.workers}'
+		if self.an:
+			audstr = '"-an"'
+		else:
+			audstr = f'"-c:a libopus -ac:a 2 -b:a {self.audio_bitrate}k"'
+		return f'-y{keepstr}{tempdir} --verbose -c mkvmerge --set-thread-affinity {self.svtparam.threads} --chunk-order long-to-short -e {self.encoder} -v="{encoder_param}" --pix-format yuv420p10le {rescale} -a {audstr} -w {self.workers}'
 
 	def copy(self):
 		ret = AV1ANParameters()
@@ -101,6 +106,30 @@ class AV1ANParameters:
 		ret.rescale = self.rescale
 		ret.audio_bitrate = self.audio_bitrate
 		return ret
+
+class EncodeFile: #allows more precise encoding manipulations
+    EncodeFileTempIndex = 0
+    def __init__(self, inputfile:str):
+        self.inputfile = inputfile
+
+        EncodeFile.EncodeFileTempIndex += 1
+
+    def __str__(self):
+        return self.inputfile
+	
+    def __repr__(self):
+        return self.inputfile
+
+    def encode(self, outputfile:str, av1anparam:AV1ANParameters = AV1ANParameters(), scenefile:Scene = None):
+        if scenefile == None:
+            scene_arg = ""
+        else:
+            scene_arg = f"-s {scenefile.file}"
+
+        try:
+            check_output(f"av1an -i \"{self.inputfile}\" {scene_arg} {str(av1anparam)} -o \"{outputfile}\"", shell = True)
+        except Exception as e:
+            print("Error occured while encoding in av1an, skipping it... ", e)
 
 def convertAudioWithOpusenc(inputfile:str, outputfile:str, audio_bitrate:int = 128, stereo:bool = True, deletesource:bool = False):
 	if os.path.isfile(os.path.join('temp', os.path.basename(inputfile)+'.flac')): os.remove (os.path.join('temp', os.path.basename(inputfile)+'.flac'))

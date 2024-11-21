@@ -19,6 +19,47 @@ class SSIMU2Score:
         self.scores = res
         self.source = originalFile
         self.distorded = distordedFile
+    
+    def compute_frames(self, originalFile : str, distordedFile : str, frames = []) -> None:
+        assert len(frames) > 0
+        src = vs.core.bs.VideoSource(originalFile, threads=24)[frames[0]]
+        dis = vs.core.bs.VideoSource(distordedFile, threads=24)[frames[0]]
+
+        for frame in frames:
+            src += vs.core.bs.VideoSource(originalFile, threads=24)[frame]
+            dis += vs.core.bs.VideoSource(distordedFile, threads=24)[frame]
+			
+        #src = src.resize.Bicubic(height=dis.height, width=dis.width, format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
+        #dis = dis.resize.Bicubic(format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
+
+        result = src.vszip.Metrics(dis, mode = 0)
+        res = [[frames[ind], fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(result.frames())]
+        res = [k for k in res if k[1] > 0]
+        self.scores = res
+        self.source = originalFile
+        self.distorded = distordedFile
+    
+    def compute_unmatched_frames(self, originalFile : str, distordedFile : str, frames_original = [], frames_distorted = []) -> None:
+        assert len(frames_original) == len(frames_distorted)
+        ori = vs.core.bs.VideoSource(originalFile, threads=24)
+        en = vs.core.bs.VideoSource(distordedFile, threads=24)
+        
+        src = ori[frames_original[0]]
+        dis = en[frames_distorted[0]]
+
+        for i in range(1, len(frames_original)):
+            src += ori[frames_original[i]]
+            dis += en[frames_distorted[i]]
+			
+        src = src.resize.Bicubic(height=dis.height, width=dis.width, format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
+        dis = dis.resize.Bicubic(format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
+
+        result = src.vszip.Metrics(dis, mode = 0)
+        res = [[frames_original[ind], fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(result.frames())]
+        res = [k for k in res if k[1] > 0]
+        self.scores = res
+        self.source = originalFile
+        self.distorded = distordedFile
 
     def statistics(self) -> tuple[int, int, int, int, int]:
 		#returns (avg, deviation, median, 5th percentile, 95th percentile)
@@ -58,3 +99,15 @@ class SSIMU2Score:
                 y[int(score*2)] += 1
         pyplot.plot(x, y)
         pyplot.show()
+
+def multiple_histogram(scores, names):
+    assert len(names) == len(scores)
+    x = [k*0.5 for k in range(201)]
+    y = [0 for k in x]
+    for scor in scores:
+        for score1 in scor.scores:
+            score = score1[1]
+            if score >= 0 and score <= 100:
+                y[int(score*2)] += 1
+        pyplot.plot(x, y)
+    pyplot.show()

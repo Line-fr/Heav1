@@ -67,7 +67,7 @@ class Scene:
 
         for sceneind in scenes:
             newjson['frames'] += jsondata['scenes'][sceneind]["end_frame"] - jsondata['scenes'][sceneind]["start_frame"]
-            newjson["scenes"] += copy.deepcopy(jsondata['scenes'][sceneind])
+            newjson["scenes"] += [copy.deepcopy(jsondata['scenes'][sceneind])]
 
         res.writeJson(newjson)
 

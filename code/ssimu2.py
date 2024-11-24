@@ -10,8 +10,8 @@ class SSIMU2Score:
         src = vs.core.bs.VideoSource(originalFile, threads=24)[begin:end:skip]
         dis = vs.core.bs.VideoSource(distordedFile, threads=24)[begin:end:skip]
 			
-        #src = src.resize.Bicubic(height=dis.height, width=dis.width, format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
-        #dis = dis.resize.Bicubic(format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
+        src = src.resize.Bicubic(height=dis.height, width=dis.width, format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
+        dis = dis.resize.Bicubic(format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
 
         result = src.vszip.Metrics(dis, mode = 0)
         res = [[begin + ind*skip, fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(result.frames())]
@@ -29,8 +29,8 @@ class SSIMU2Score:
             src += vs.core.bs.VideoSource(originalFile, threads=24)[frame]
             dis += vs.core.bs.VideoSource(distordedFile, threads=24)[frame]
 			
-        #src = src.resize.Bicubic(height=dis.height, width=dis.width, format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
-        #dis = dis.resize.Bicubic(format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
+        src = src.resize.Bicubic(height=dis.height, width=dis.width, format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
+        dis = dis.resize.Bicubic(format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")
 
         result = src.vszip.Metrics(dis, mode = 0)
         res = [[frames[ind], fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(result.frames())]

@@ -7,6 +7,7 @@ import shutil
 import copy
 import time
 import math
+import shutil
 try:
 	from matplotlib import pyplot
 except:

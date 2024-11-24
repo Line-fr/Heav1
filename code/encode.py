@@ -1,5 +1,6 @@
 from DependencyCheck import *
 from SceneManager import *
+from optimizer import *
 
 class SVTParameters:
 	def __init__(self, preset:int = 6, crf:int = 30, threads:int = 4, lookahead:int = 60, film_grain:int = 0, film_grain_denoise:int = 0, tune:int = 3, variance_octile:int = 6, variance_boost:int = 2):
@@ -164,6 +165,131 @@ def encode(outputfile:str, inputfile:str, av1anparam:AV1ANParameters = AV1ANPara
 
 	#compute scene if needed
 	sc = getscene(inputfile)
+	scene_arg = f"-s {sc.file}"
+
+	try:
+		check_output(f"av1an -i \"{inputfile}\" {scene_arg} {str(av1anparam)} -o \"{tempoutput}\"", shell = True)
+	except Exception as e:
+		print("Error occured while encoding in av1an, skipping it... ", e)
+
+	if use_opus_enc:
+		finalFile = MKVFile(os.path.join("temp", "encodedvideo.mkv"))
+		for i in to_delete[-1::-1]:
+			finalFile.remove_track(i)
+		for i in range(numaudio):
+			nt = MKVTrack(os.path.join("temp", f"audiotemp{i}.opus"))
+			nt.track_name = metadata[i][0]
+			nt.default_track = metadata[i][1]
+			nt.forced_track = metadata[i][2]
+			if metadata[i][3] != None: nt.language = metadata[i][3]
+			finalFile.add_track(nt)
+		finalFile.mux(outputfile)
+		for i in range(numaudio):
+			os.remove(os.path.join("temp", f"audiotemp{i}.opus"))
+		os.remove(os.path.join("temp", "encodedvideo.mkv"))
+
+def Heav1_precompute(inputfile:str, av1anparam = AV1ANParameters(), tolerance_crf = 2 , sampling_per_scene = 20, alpha = 0.5, quality_flexibility = 8):
+	av1anparam = av1anparam.copy()
+	initialscene = getscene(inputfile)
+	to_work_on = [i for i in range(initialscene.numberOfScenes())]
+	sample_result = {i : [] for i in range(len(to_work_on))}
+	current_crf = {i : av1anparam.svtparam.crf for i in range(len(to_work_on))}
+
+	last_known_ssimu2 = {i : 0 for i in range(len(to_work_on))}
+	last_known_size = {i : 0 for i in range(len(to_work_on))}
+
+	newscene = initialscene.restrain_scenes(to_work_on)
+	while len(to_work_on) > 0:
+		samples = newscene.sample_scene_encode(sampling_per_scene, endmiddle= False)
+
+		#put new crf
+
+		sample_old_location = [el[0]+el[2]//2 for el in samples]
+		sample_new_location = [el[1]+el[2]//2 for el in samples]
+
+		f = EncodeFile(inputfile)
+		resname = f"temp\\{os.path.basename(inputfile[:-4])}_sample.mkv"
+		tempdir = f"temp\\av1antemp"
+		if os.path.isdir(tempdir): shutil.rmtree(tempdir)
+		os.mkdir(tempdir)
+		av1anparam.keep = True
+		av1anparam.tempdir = tempdir
+		f.encode(resname, av1anparam=av1anparam, scenefile=newscene)
+		av1anparam.keep = False
+		with open(os.path.join(tempdir, "done.json"), "r") as donefile:
+			doneav1an = json.load(donefile)
+
+		score = SSIMU2Score()
+		score.compute_unmatched_frames(inputfile, resname, sample_old_location, sample_new_location)
+
+		for (key, item) in doneav1an['done'].items():
+			sample_result[to_work_on[int(key)]].append((current_crf[to_work_on[int(key)]], doneav1an['done'][key]["size_bytes"]/doneav1an['done'][key]["frames"], score.scores[int(key)][1]))
+			last_known_ssimu2[to_work_on[int(key)]] = score.scores[int(key)][1]
+			last_known_size[to_work_on[int(key)]] = doneav1an['done'][key]["size_bytes"]/doneav1an['done'][key]["frames"]
+		
+		average_ssimu2 = sum([el for (key, el) in last_known_ssimu2.items()])/len(last_known_ssimu2)
+		average_size = sum([el for (key, el) in last_known_size.items()])/len(last_known_size)
+
+		try:
+			os.remove(resname)
+		except:
+			print("could not remove ", resname)
+
+		for ind in range(len(to_work_on)-1, -1, -1):
+			newcrf = optimizer(sample_result[to_work_on[ind]], average_ssimu2, average_size, quality_flexibility, alpha, True)[0]
+			if abs(current_crf[to_work_on[ind]] - newcrf) <= tolerance_crf:
+				current_crf[to_work_on[ind]] = newcrf
+				del to_work_on[ind]
+			else:
+				current_crf[to_work_on[ind]] = newcrf
+
+		newscene = initialscene.restrain_scenes(to_work_on)
+
+		newjson = newscene.decodeJson()
+		for ind in range(len(newjson['scenes'])):
+			av1anparam.svtparam.crf = current_crf[to_work_on[ind]]
+			newjson['scenes'][ind]['zone_overrides'] = av1anparam.svtparam.zoning_override()
+		newscene.writeJson(newjson)
+	
+	resjson = initialscene.decodeJson()
+	for ind in range(len(resjson['scenes'])):
+		av1anparam.svtparam.crf = current_crf[ind]
+		resjson['scenes'][ind]['zone_overrides'] = av1anparam.svtparam.zoning_override()
+	initialscene.writeJson(resjson)
+
+	return initialscene
+
+
+def Heav1_encode(outputfile:str, inputfile:str, scene:Scene, av1anparam = AV1ANParameters(), use_opus_enc:bool = True):
+	if use_opus_enc:
+		sourcefile = MKVFile(inputfile)
+		numaudio = 0
+		to_delete = []
+		metadata = []
+		for track in sourcefile.get_track():
+			if track.track_type == "audio":
+				#intercepting the audio !
+				audiofile = MKVFile()
+				audiofile.add_track(track)
+				if os.path.isfile(os.path.join("temp", f"audiotemp{numaudio}.mka")): os.remove(os.path.join("temp", f"audiotemp{numaudio}.mka"))
+				audiofile.mux(os.path.join("temp", f"audiotemp{numaudio}.mka"))
+				metadata.append([track.track_name, track.default_track, track.forced_track, track.language])
+				to_delete.append(track.track_id)
+				numaudio += 1
+		print("encoding to opus...")
+		for i in range(numaudio):
+			if os.path.isfile(os.path.join("temp", f"audiotemp{i}.opus")): os.remove(os.path.join("temp", f"audiotemp{i}.opus"))
+			convertAudioWithOpusenc(os.path.join("temp", f"audiotemp{i}.mka"), os.path.join("temp", f"audiotemp{i}.opus"), audio_bitrate = av1anparam.audio_bitrate, deletesource=True, stereo=True)
+		tempoutput = os.path.join('temp', 'encodedvideo.mkv')
+	else:
+		tempoutput = outputfile
+
+	#encode video with Heav1
+
+	#compute scene if needed
+
+
+	sc = scene
 	scene_arg = f"-s {sc.file}"
 
 	try:
